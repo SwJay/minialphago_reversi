@@ -1,0 +1,1 @@
+# minialphago_reversi
