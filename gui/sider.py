@@ -1,4 +1,5 @@
-from PyQt5.QtWidgets import (QPushButton, QVBoxLayout, QDialog, QLabel)
+from PyQt5.QtWidgets import (QWidget, QPushButton, QVBoxLayout, QDialog, QLabel, QLCDNumber)
+from PyQt5.QtCore import QTimer
 
 START = 0
 END = 1
@@ -6,20 +7,49 @@ END = 1
 HUMAN = 1
 AI = -1
 
+BLACK = -1
+WHITE = 1
+TIE = 0
 
-class Sider(QVBoxLayout):
+
+class Sider(QWidget):
+
     def __init__(self):
-        QVBoxLayout.__init__(self)
+        QWidget.__init__(self)
 
-        self.start_button = QPushButton("start")
-        self.start_button.clicked.connect(self.start)
+        self.timer = QTimer(self)
+        self.timer.start(1000)
+        self.timer.timeout.connect(self.ontime)
 
-        self.addStretch(1)
-        self.addWidget(self.start_button)
-        self.addStretch(1)
+        # lcd
+        self.time = 0
+        self.lcd = QLCDNumber()
+        # billborad
+        self.log = QLabel(self)
+        self.msg = ""
+        self.count = 0
 
-    def start(self):
-        self.removeWidget(self.start_button)
+        layout = QVBoxLayout()
+        layout.addWidget(self.lcd)
+        layout.addWidget(self.log)
+        layout.setStretch(0, 1)
+        layout.setStretch(1, 3)
+        self.setLayout(layout)
+        self.show()
+
+    def ontime(self):
+        if self.time > 0:
+            self.time -= 1
+            self.lcd.display(self.time)
+
+    def time_refresh(self):
+        self.time = 60
+
+    def log_refresh(self, x, y, time):
+        self.count += 1
+        self.msg += "Ai no." + str(self.count) + "| location: (" + str(x) + ", " + str(y) \
+                    + "), time used: " + str(time) + " secs.\n"
+        self.log.setText(self.msg)
 
 
 class Dialog(QDialog):
@@ -33,8 +63,6 @@ class Dialog(QDialog):
 
         if dia_type == START:
             self.start()
-        elif dia_type == END:
-            self.end()
 
     def start(self):
         self.resize(240, 200)
@@ -52,6 +80,24 @@ class Dialog(QDialog):
 
         self.setLayout(layout)
 
+    def end(self):
+        self.resize(240, 200)
+        self.setWindowTitle("GAME OVER")
+        label = QLabel(self)
+
+        if self.winner is BLACK:
+            msg = "AI wins! Black count: " + str(self.black) + ", white count: " + str(self.white)
+        elif self.winner is WHITE:
+            msg = "You win! Black count: " + str(self.black) + ", white count: " + str(self.white)
+        elif self.winner is TIE:
+            msg = "Tie end! Both count: " + str(self.black)
+
+        label.setText(msg)
+
+        layout = QVBoxLayout()
+        layout.addWidget(label)
+        self.setLayout(layout)
+
     def human_first(self):
         self.player = HUMAN
         self.close()
@@ -62,3 +108,7 @@ class Dialog(QDialog):
 
     def get_player(self):
         return self.player
+
+    def set_winner(self, result):
+        self.winner, self.black, self.white = result
+        self.end()

@@ -1,186 +1,172 @@
+"""
+Author: Eric P. Nichols
+Date: Feb 8, 2008.
+
+Reversi class.
+
+Reversi data:
+  1 = white, -1 = black, 0 = empty
+  first dim is column, 2nd is row:
+     pieces[1][7] is the square in column 2,
+     at the opposite end of the Reversi in row 8.
+
+Squares are stored and manipulated as (x,y) tuples.
+x is the column, y is the row.
+"""
 from __future__ import print_function
-import argparse, copy, signal, sys, timeit, traceback
-from board import Board, move_string
-import random
 
-player = {-1 : "Black", 1 : "White"}
 
-def game(black_engine, white_engine, game_time=30, verbose=False):
-    """ Run a single game. Raise RuntimeError in the event of time expiration.
-    Raise LookupError in the case of a bad move. The tournament engine must
-    handle these exceptions. """
+class Reversi():
+    # List of all 8 directions on the Reversi, as (x,y) offsets
+    __directions = [(1,1),(1,0),(1,-1),(0,-1),(-1,-1),(-1,0),(-1,1),(0,1)]
 
-    # Initialize variables
-    board = Board()
-    totaltime = { -1 : game_time*60, 1 : game_time*60 } # in seconds
-    engine = { -1 : black_engine, 1 : white_engine }
+    def __init__(self):
+        """ Set up initial Reversi configuration. """
+        # Create the empty Reversi array
+        self.pieces = [None]*8
+        for i in range(8):
+            self.pieces[i] = [0]*8
 
-    if verbose:
-        print("INITIAL BOARD\n\n--\n")
-        board.display(totaltime)
+        # Set up the initial 4 pieces
+        self.pieces[3][4] = 1
+        self.pieces[4][3] = 1
+        self.pieces[3][3] = -1
+        self.pieces[4][4] = -1
 
-    # Do rounds
-    for move_num in range(60):
+    # Add [][] indexer syntax to the Reversi
+    def __getitem__(self, index):
+        return self.pieces[index]
+
+    def display(self, time):
+        """" Display the Reversi and the statistics of the ongoing game. """
+        print("    A B C D E F G H")
+        print("    ---------------")
+        for y in range(7,-1,-1):
+            # Print the row number
+            print(str(y+1) + ' |', end=' ')
+            for x in range(8):
+                # Get the piece to print
+                piece = self[x][y]
+                if piece == -1:
+                    print("B", end=' ')
+                elif piece == 1:
+                    print("W", end=' ')
+                else:
+                    print(".", end=' ')
+            print('| ' + str(y+1))
+
+        print("    ---------------")
+        print("    A B C D E F G H\n")
+
+        print("STATISTICS (score / remaining time):")
+        print("Black: {} / {} min {} sec".format(str(self.count(-1)), str(divmod(int(time[-1]),60)[0]), str(divmod(int(time[-1]),60)[1])))
+        print("White: {} / {} min {} sec\n".format(str(self.count(1)), str(divmod(int(time[1]),60)[0]), str(divmod(int(time[1]),60)[1])))
+
+    def count(self, color):
+        """ Count the number of pieces of the given color.
+        (1 for white, -1 for black, 0 for empty spaces) """
+        count = 0
+        for y in range(8):
+            for x in range(8):
+                if self[x][y]==color:
+                    count += 1
+        return count
+
+    def get_squares(self, color):
+        """ Get the coordinates (x,y) for all pieces on the Reversi of the given color.
+        (1 for white, -1 for black, 0 for empty spaces) """
+        squares=[]
+        for y in range(8):
+            for x in range(8):
+                if self[x][y]==color:
+                    squares.append((x,y))
+        return squares
+
+    def get_legal_moves(self, color):
+        """ Return all the legal moves for the given color.
+        (1 for white, -1 for black) """
+        # Store the legal moves
+        if color!=1 and color!=-1:
+            return []
+        moves = set()
+        # Get all the squares with pieces of the given color.
+        for square in self.get_squares(color):
+            # Find all moves using these pieces as base squares.
+            newmoves = self.get_moves_for_square(square)
+            # Store these in the moves set.
+            moves.update(newmoves)
+        return list(moves)
+
+    def get_moves_for_square(self, square):
+        """ Return all the legal moves that use the given square as a base
+        square. That is, if the given square is (3,4) and it contains a black
+        piece, and (3,5) and (3,6) contain white pieces, and (3,7) is empty,
+        one of the returned moves is (3,7) because everything from there to
+        (3,4) can be flipped. """
+        (x,y) = square
+        # Determine the color of the piece
+        color = self[x][y]
+
+        # Skip empty source squares
+        if color==0:
+            return None
+
+        # Search all possible directions
         moves = []
-        for color in [-1, 1]:
-            start_time = timeit.default_timer()
-            move = get_move(board, engine[color], color, move_num, totaltime)
-            end_time = timeit.default_timer()
-            # Update user totaltime
-            time = round(end_time - start_time, 1)
-            totaltime[color] -= time
-
-            if totaltime[color] < 0:
-                raise RuntimeError(color)
-
-            # Make a move, otherwise pass
-            if move is not None:
-                board.execute_move(move, color)
+        for direction in self.__directions:
+            move = self._discover_move(square, direction)
+            if move:
                 moves.append(move)
+        # Return the generated list of moves
+        return moves
 
-                if verbose:
-                    print(("--\n\nRound {}: {} plays in {}\n"
-                        ).format(str(move_num + 1), player[color], move_string(move)))
-                    board.display(totaltime)
+    def execute_move(self, move, color):
+        """ Perform the given move on the Reversi, and flips pieces as necessary.
+        color gives the color of the piece to play (1 for white, -1 for black) """
+        # Start at the new piece's square and follow it on all 8 directions
+        # to look for pieces allowing flipping
 
-        if not moves:
-            break # No more legal moves. Game is over.
+        # Add the piece to the empty square
+        flips = (flip for direction in self.__directions
+                      for flip in self._get_flips(move, direction, color))
 
-    print("\n--------------------\nFINAL BOARD\n--\n")
-    board.display(totaltime)
+        for x,y in flips:
+            self[x][y] = color
 
-    board.totaltime = totaltime
-    return board
+    def _discover_move(self, origin, direction):
+        """ Return the endpoint of a legal move, starting at the given origin,
+        and moving in the given direction. """
+        x,y = origin
+        color = self[x][y]
+        flips = []
 
-def get_move(board, engine, color, move_num, time, **kwargs):
-    """ Get the move for the given engine and color. Check validity of the
-    move. """
-    legal_moves = board.get_legal_moves(color)
+        for x,y in Reversi._increment_move(origin, direction):
+            if self[x][y] == 0 and flips:
+                return (x,y)
+            elif (self[x][y] == color or (self[x][y] == 0 and not flips)):
+                return None
+            elif self[x][y] == -color:
+                flips.append((x,y))
 
-    if not legal_moves:
-        return None
-    elif len(legal_moves) == 1:
-        return legal_moves[0]
-    else:
-        try:
-            move = engine.get_move(copy.deepcopy(board), color, move_num, time[color], time[-color])
-        except Exception as e:
-            print(traceback.format_exc())
-            raise SystemError(color)
+    def _get_flips(self, origin, direction, color):
+        """ Get the list of flips for a vertex and a direction to use within
+        the execute_move function. """
+        # Initialize variable
+        flips = [origin]
 
-        if move not in legal_moves:
-            print("legal list", [move_string(m) for m in legal_moves])
-            print("illegal", move_string(move), "=", move)
-            raise LookupError(color)
+        for x, y in Reversi._increment_move(origin, direction):
+            if self[x][y] == -color:
+                flips.append((x, y))
+            elif (self[x][y] == 0 or (self[x][y] == color and len(flips) == 1)):
+                break
+            elif self[x][y] == color and len(flips) > 1:
+                return flips
+        return []
 
-        return move
-
-def winner(board):
-    """ Determine the winner of a given board. Return the points of the two
-    players. """
-    black_count = board.count(-1)
-    white_count = board.count(1)
-    if black_count > white_count:
-        return (-1, black_count, white_count)
-    elif white_count > black_count:
-        return (1, black_count, white_count)
-    else:
-        return (0, black_count, white_count)
-
-def signal_handler(signal, frame):
-    """ Capture SIGINT command. """
-    print('\n\n- You quit the game!')
-    sys.exit()
-
-def main(engines, user_names, scores, game_time, verbose):
-    try:
-        print(("\n====================\nNEW GAME\nBlack: {}\nWhite: {}").format(user_names[0], user_names[1]))
-        board = game(engines[0], engines[1], game_time, verbose)
-        stats = winner(board)
-        if stats[0] == -1: # black wins
-            scores[0]+=stats[1]
-            print(("- {} ({}) wins the game! (Current score: {})").format(user_names[0], player[-1], scores[0]))
-        elif stats[0] == 1: # white wins
-            scores[1]+=stats[2]
-            print(("- {} ({}) wins the game! (Current score: {})").format(user_names[1], player[1], scores[1]))
-        else:
-            print("- Tied!")
-        return scores
-
-    except RuntimeError as e:
-        err_usr_id = int((e.args[0]+1)/2) # 0 or 1
-        other_id = int((1-e.args[0])/2) # 1 or 0
-        scores[other_id]+=64
-        print(("\n- {} ({}) ran out of time!\n").format(user_names[err_usr_id], player[e.args[0]]))
-        print(("{} ({}) wins the game! (Current score: {})").format(user_names[other_id], player[e.args[0]*-1], scores[other_id]))
-        return scores
-    except LookupError as e:
-        err_usr_id = int((e.args[0]+1)/2) # 0 or 1
-        other_id = int((1-e.args[0])/2) # 1 or 0
-        scores[other_id]+=64
-        print(("\n- {} ({}) made an illegal move!\n").format(user_names[err_usr_id], player[e.args[0]]))
-        print(("{} ({}) wins the game! (Current score: {})").format(user_names[other_id], player[e.args[0]*-1], scores[other_id]))
-        return scores
-    except SystemError as e:
-        err_usr_id = int((e.args[0]+1)/2) # 0 or 1
-        other_id = int((1-e.args[0])/2) # 1 or 0
-        scores[other_id]+=64
-        print(("\n- {} ({}) ended prematurely because of an error!\n").format(user_names[err_usr_id], player[e.args[0]]))
-        print(("{} ({}) wins the game! (Current score: {})").format(user_names[other_id], player[e.args[0]*-1], scores[other_id]))
-        return scores
-
-
-if __name__ == '__main__':
-    signal.signal(signal.SIGINT, signal_handler)
-    # Automatically generate help and usage messages.
-    # Issue errors when users gives the program invalid arguments.
-    parser = argparse.ArgumentParser(description="Play the Reversi/Othello game using different engines.")
-    parser.add_argument("-a", "--engine_a", action="store", type=str, default="greedy", help="first engine (human, eona, greedy, nonull, random)")
-    parser.add_argument("-b", "--engine_b", action="store", type=str, default="random", help="second engine (human, eona, greedy, nonull, random)")
-    #parser.add_argument("-mB", action="store_true", default=False, help="turn on alpha-beta pruning for the first player")
-    #parser.add_argument("-mW", action="store_true", default=False, help="turn on alpha-beta pruning for the second player")
-    parser.add_argument("-t", "--time", action="store", type=int, default=30, help="time limit (in minutes)")
-    parser.add_argument("-v", "--verbose", action="store_true", default=False, help="display the board at each turn")
-    args = parser.parse_args()
-
-    ename1 = args.engine_a # engine name 1
-    ename2 = args.engine_b # engine name 2
-    enames = [ename1, ename2]
-    print(("{} vs. {}").format(ename1, ename2))
-
-    try:
-        engine_import_1 = __import__('engines.' + ename1)
-        engine_import_2 = __import__('engines.' + ename2)
-        engine1 = engine_import_1.__dict__[ename1].__dict__['engine']()
-        engine2 = engine_import_2.__dict__[ename2].__dict__['engine']()
-        engines = [engine1, engine2]
-
-        #if (ename1 != "greedy" and ename1 != "human" and ename1 != "random"):
-            #engine1.alpha_beta = not args.mW
-        #if (ename2 != "greedy" and ename2 != "human" and ename2 != "random"):
-            #engine2.alpha_beta = not args.mB
-
-        v = (args.verbose or ename1 == "human" or ename2 == "human")
-
-        # Game begin
-        ss = [0]*2 # scores
-        n=0
-        while n<3 or ss[0]==ss[1]:
-            #i,j = random.sample([0,1],2)
-            #ename1 black,ename2 white
-            i=0
-            j=1
-            ss[i], ss[j] = main([engines[i], engines[j]], [enames[i], enames[j]], [ss[i], ss[j]], game_time=args.time, verbose=v)
-            n+=1
-
-        print(('\n========== FINAL REPORT ==========\nTotal rounds: {}\n{} - {}: {} - {}'
-            ).format(n, enames[0], enames[1], ss[0], ss[1]))
-        if ss[0]>ss[1]:
-            print('The winner is', enames[0], '!')
-        else:
-            print('The winner is', enames[1], '!')
-
-    except ImportError as e:
-        print(e)
-        print(('Unknown engine -- {}').format(e.args[0].split()[-1]))
-        sys.exit()
+    @staticmethod
+    def _increment_move(move, direction):
+        """ Generator expression for incrementing moves """
+        move = list(map(sum, list(zip(move, direction))))
+        while all(list(map(lambda x: 0 <= x < 8, move))):
+            yield move
+            move = list(map(sum, list(zip(move, direction))))

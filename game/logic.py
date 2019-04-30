@@ -1,3 +1,7 @@
+"""
+obsolete logic
+"""
+
 import numpy as np
 
 EMPTY = 0

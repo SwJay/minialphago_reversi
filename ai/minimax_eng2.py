@@ -144,7 +144,7 @@ class MinimaxEngine():
         if board.count(color) + board.count(-1 * color) < 6:
             self.step_count = 0
         self.step_count += 2  # 不一定准确
-        print("step_count", self.step_count)
+        # print("step_count", self.step_count)
         if self.step_count < 45:
             _, move = self.max(board, color, 0, *interval)
         else:

@@ -1,7 +1,8 @@
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QGridLayout, QLabel)
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QLabel)
 from PyQt5.QtGui import (QPainter, QPalette, QColor, QPixmap)
+from PyQt5.QtCore import pyqtSignal
 from gui.sider import (Sider, Dialog)
-from game.board import Reversi
+from game.reversi import Reversi
 from ai.minimax_eng2 import MinimaxEngine
 import time
 
@@ -22,10 +23,6 @@ ALTER = 2
 MOUSE = 3
 AI = 4
 
-BLACK = -1
-WHITE = 1
-TIE = 0
-
 trans_d = lambda x: BASEX + DISC * x
 trans_c = lambda x: 1.15 * BASEX + DISC * x
 
@@ -34,6 +31,9 @@ class Board(QMainWindow):
 
     def __init__(self):
         QMainWindow.__init__(self)
+
+        self.totoal_time = 0
+        self.statusBar().showMessage("total time for ai: " + str(self.totoal_time))
 
         # init subparts
         self.chessBoard = ChessBoard()
@@ -47,14 +47,14 @@ class Board(QMainWindow):
 
         layout = QHBoxLayout()
         layout.addWidget(self.chessBoard)
-        layout.addLayout(self.sider)
+        layout.addWidget(self.sider)
         # set horizontal proportion 4:1
-        layout.setStretch(0, 4)
+        layout.setStretch(0, 2)
         layout.setStretch(1, 1)
 
         board.setLayout(layout)
         self.setCentralWidget(board)
-        self.setGeometry(450, 100, 1000, 800)
+        self.setGeometry(250, 100, 1200, 800)
         self.setWindowTitle("Reversi")
         self.show()
 
@@ -63,13 +63,29 @@ class Board(QMainWindow):
         self.chessBoard.player = start_dialog.get_player()
         start_dialog.destroy()
 
-        self.round()
+        self.start()
 
-    def round(self):
-        self.chessBoard.update()
+        self.chessBoard.time_sig.connect(self.sider.time_refresh)
+        self.chessBoard.ai_sig.connect(self.update_status)
+
+    def start(self):
+        self.sider.time_refresh()
+        if self.chessBoard.player is LIGHT:
+            self.chessBoard.update()
+        else:
+            self.chessBoard.ai_play()
+
+    def update_status(self, x, y, second):
+        self.sider.log_refresh(x, y, second)
+        self.totoal_time += second
+        m, s = divmod(self.totoal_time, 60)
+        self.statusBar().showMessage("total time for ai: %02d min %02d sec" % (m, s))
 
 
 class ChessBoard(QWidget):
+    # signal
+    time_sig = pyqtSignal()
+    ai_sig = pyqtSignal(int, int, int)  # x, y, time
 
     def __init__(self):
         QWidget.__init__(self)
@@ -78,8 +94,8 @@ class ChessBoard(QWidget):
         self.player = EMPTY
         self.ai = MinimaxEngine()
         self.location = -1, -1
+        # identify ai step
         self.shot = 0
-        self.end = 0
 
         # set background color
         bg = QPalette()
@@ -154,11 +170,10 @@ class ChessBoard(QWidget):
             y = event.y()
             placeables = self.game.get_legal_moves(self.player)
             if len(placeables) >= 1:
-                self.end = 0
                 for location in placeables:
                     disc_x, disc_y = location
                     if trans_d(disc_x) < x < trans_d(disc_x) + DISC \
-                    and trans_d(disc_y) < y < trans_d(disc_y) + DISC:
+                            and trans_d(disc_y) < y < trans_d(disc_y) + DISC:
                         self.game.execute_move(location, self.player)
                         self.player = - self.player
                         self.repaint()
@@ -166,58 +181,54 @@ class ChessBoard(QWidget):
 
                 # check AI's legal move
                 if len(self.game.get_legal_moves(self.player)) == 0:
-                    self.end += 1
-                    if self.end is 1:
-                        self.player = - self.player
-                        print("AI has no legal move, it's your turn again")
-                    elif self.player is 2:
-                        print("GG")
+                    self.player = - self.player
+                    if len(self.game.get_legal_moves(self.player)) == 0:
                         self.endgame()
+                    else:
+                        print("AI has no legal move, it's your turn again")
+                        self.time_sig.emit()
+                else:
+                    # ldc for ai
+                    self.time_sig.emit()
 
     def ai_play(self):
         if len(self.game.get_legal_moves(self.player)) >= 1:
-            self.end = 0
-            # move = self.ai.get_move(self.game, self.player)
-            move = self.game.get_legal_moves(self.player)[0]
+            start = time.time()
+            move = self.ai.get_move(self.game, self.player)
+            # move = self.game.get_legal_moves(self.player)[0]
+            end = time.time()
+            ai_time = end - start
+            self.ai_sig.emit(move[0], move[1], ai_time)
+
             self.location = move
             self.shot = 1
             self.repaint()
-            # time.sleep(0.5)
+            time.sleep(0.5)
             self.game.execute_move(move, self.player)
             self.player = - self.player
             self.repaint()
 
             # check human legal move
             if len(self.game.get_legal_moves(self.player)) == 0:
-                self.end += 1
-                if self.end is 1:
-                    self.player = - self.player
-                    print("You have no legal move, it's AI's turn")
-                    self.ai_play()
-                elif self.player is 2:
-                    print("GG")
+                self.player = - self.player
+                if len(self.game.get_legal_moves(self.player)) == 0:
                     self.endgame()
+                else:
+                    print("You no legal move, it's AI's turn again")
+                    self.ai_play()
+                    self.time_sig.emit()
+            else:
+                # ldc for human
+                self.time_sig.emit()
 
     def endgame(self):
-        winner, black, white = self.winner()
-        label = QLabel()
-        label.setFixedWidth(400)
-        label.setFixedHeight(400)
-        self.resize(240, 200)
-        self.setWindowTitle("GAME OVER")
-
-        if winner is BLACK:
-            msg = "AI wins! Black count: " + str(black) + ", white count: " + str(white)
-        elif winner is WHITE:
-            msg = "You win! Black count: " + str(black) + ", white count: " + str(white)
-        else:
-            msg = "Tie end! Both count: " + str(black)
-
-        label.setText(msg)
+        dia = Dialog(END)
+        dia.set_winner(self.winner())
+        dia.exec()
 
     def winner(self):
-        black_count = self.game.pieces.count(-1)
-        white_count = self.game.pieces.count(1)
+        black_count = self.game.count(-1)
+        white_count = self.game.count(1)
         if black_count > white_count:
             return -1, black_count, white_count
         elif white_count > black_count:
