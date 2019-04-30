@@ -1,12 +1,13 @@
-from PyQt5.QtWidgets import (QPushButton, QVBoxLayout, QDialog)
+from PyQt5.QtWidgets import (QPushButton, QVBoxLayout, QDialog, QLabel)
 
 START = 0
 END = 1
-HUMAN = -1
-AI = 1
+
+HUMAN = 1
+AI = -1
 
 
-class Menu(QVBoxLayout):
+class Sider(QVBoxLayout):
     def __init__(self):
         QVBoxLayout.__init__(self)
 
@@ -26,13 +27,16 @@ class Dialog(QDialog):
         QDialog.__init__(self)
 
         self.player = 0
+        self.winner = 0
+        self.black = 0
+        self.white = 0
 
         if dia_type == START:
-            self.init_start()
+            self.start()
         elif dia_type == END:
-            self.init_end()
+            self.end()
 
-    def init_start(self):
+    def start(self):
         self.resize(240, 200)
         self.setWindowTitle("start")
 
